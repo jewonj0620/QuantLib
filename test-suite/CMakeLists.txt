@@ -215,7 +215,16 @@ if (QL_BUILD_TEST_SUITE)
     if (QL_INSTALL_TEST_SUITE)
         install(TARGETS ql_test_suite RUNTIME DESTINATION ${QL_INSTALL_BINDIR})
     endif()
-    add_test(NAME quantlib_test_suite COMMAND ql_test_suite --log_level=message)
+    if (BUILD_TESTING)
+        if (QL_ENABLE_CTEST_TEST_DISCOVERY AND NOT QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER)
+            include(DiscoverBoostTests)
+            ql_discover_boost_tests(ql_test_suite
+                TEST_PREFIX "quantlib_test_suite."
+                EXTRA_ARGS --log_level=message)
+        else()
+            add_test(NAME quantlib_test_suite COMMAND ql_test_suite --log_level=message)
+        endif()
+    endif()
 
 
     add_executable(ql_benchmark quantlibbenchmark.cpp)
@@ -225,4 +234,3 @@ if (QL_BUILD_TEST_SUITE)
         install(TARGETS ql_benchmark RUNTIME DESTINATION ${QL_INSTALL_BINDIR})
     endif()
 endif()
-
