@@ -70,7 +70,6 @@ namespace QuantLib {
         std::unique_ptr<Size[]> i0_, i2_;
         std::unique_ptr<Size[]> reverseIndex_;
         std::unique_ptr<Real[]> lower_, diag_, upper_;
-        mutable Array temp_; // reusable workspace for solve_splitting
 
         ext::shared_ptr<FdmMesher> mesher_;
     };

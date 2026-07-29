@@ -37,7 +37,6 @@ namespace QuantLib {
       lower_    (new Real[mesher->layout()->size()]),
       diag_     (new Real[mesher->layout()->size()]),
       upper_    (new Real[mesher->layout()->size()]),
-      temp_     (mesher->layout()->size()),
       mesher_(mesher) {
 
         std::vector<Size> newDim(mesher->layout()->dim());
@@ -67,7 +66,6 @@ namespace QuantLib {
       lower_(new Real[m.mesher_->layout()->size()]),
       diag_ (new Real[m.mesher_->layout()->size()]),
       upper_(new Real[m.mesher_->layout()->size()]),
-      temp_ (m.mesher_->layout()->size()),
       mesher_(m.mesher_) {
         const auto len = m.mesher_->layout()->size();
         std::copy(m.i0_.get(), m.i0_.get() + len, i0_.get());
@@ -86,7 +84,6 @@ namespace QuantLib {
         i0_.swap(m.i0_); i2_.swap(m.i2_);
         reverseIndex_.swap(m.reverseIndex_);
         lower_.swap(m.lower_); diag_.swap(m.diag_); upper_.swap(m.upper_);
-        temp_.swap(m.temp_);
     }
 
     void TripleBandLinearOp::axpyb(const Array& a,
@@ -275,6 +272,13 @@ namespace QuantLib {
 
         // Thomas algorithm to solve a tridiagonal system.
         const auto size = mesher_->layout()->size();
+
+        // Keep concurrent calls independent while reusing the allocation.
+        static thread_local Array threadLocalTemp;
+        if (threadLocalTemp.size() < size)
+            threadLocalTemp.resize(size);
+        Array& temp = threadLocalTemp;
+
         const auto solve = [&](const auto& index) {
             Array result(size);
 
@@ -286,9 +290,9 @@ namespace QuantLib {
 
             for (auto j=1u; j<size; ++j) {
                 const auto current = index(j);
-                temp_[j] = a * uptr[previous] * beta;
+                temp[j] = a * uptr[previous] * beta;
 
-                beta = b + a * (dptr[current] - temp_[j] * lptr[current]);
+                beta = b + a * (dptr[current] - temp[j] * lptr[current]);
                 QL_ENSURE(beta != 0.0, "division by zero");
                 beta = 1.0 / beta;
 
@@ -299,8 +303,8 @@ namespace QuantLib {
 
             // j cannot be greater than or equal to zero when Size is unsigned.
             for (auto j=size-2; j>0; --j)
-                result[index(j)] -= temp_[j+1] * result[index(j+1)];
-            result[index(0)] -= temp_[1] * result[index(1)];
+                result[index(j)] -= temp[j+1] * result[index(j+1)];
+            result[index(0)] -= temp[1] * result[index(1)];
 
             return result;
         };

@@ -71,8 +71,10 @@
 #include <ql/time/daycounters/actual365fixed.hpp>
 #include <boost/numeric/ublas/operation.hpp>
 #include <boost/numeric/ublas/vector.hpp>
+#include <atomic>
 #include <functional>
 #include <numeric>
+#include <thread>
 #include <utility>
 
 using namespace QuantLib;
@@ -830,6 +832,55 @@ BOOST_AUTO_TEST_CASE(testTripleBandMapSolve) {
                 << "\n calculated    : " << t[i]);
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testTripleBandMapConcurrentSolve) {
+
+    BOOST_TEST_MESSAGE("Testing concurrent triple-band map solutions...");
+
+    const Size size = 100000;
+    const auto layout =
+        ext::make_shared<FdmLinearOpLayout>(std::vector<Size>{size});
+    const auto mesher = ext::make_shared<UniformGridMesher>(
+        layout, std::vector<std::pair<Real, Real> >{{0.0, 1.0}});
+
+    FirstDerivativeOp op(0, mesher);
+    op.axpyb(Array(1, 0.001), op, op, Array(1, 2.0));
+
+    Array first(size), second(size);
+    for (Size i = 0; i < size; ++i) {
+        first[i] = std::sin(0.001*static_cast<Real>(i));
+        second[i] = std::cos(0.003*static_cast<Real>(i));
+    }
+
+    const Array expectedFirst = op.solve_splitting(first, 0.4, 1.1);
+    const Array expectedSecond = op.solve_splitting(second, -0.2, 0.9);
+
+    std::atomic<bool> start(false), mismatch(false);
+    const auto run = [&](const Array& rhs, Real a, Real b,
+                         const Array& expected) {
+        while (!start.load())
+            std::this_thread::yield();
+
+        for (Size repeat = 0; repeat < 5 && !mismatch.load(); ++repeat) {
+            if (op.solve_splitting(rhs, a, b) != expected) {
+                mismatch.store(true);
+                return;
+            }
+        }
+    };
+
+    std::thread firstThread(
+        run, std::cref(first), 0.4, 1.1, std::cref(expectedFirst));
+    std::thread secondThread(
+        run, std::cref(second), -0.2, 0.9, std::cref(expectedSecond));
+    start.store(true);
+    firstThread.join();
+    secondThread.join();
+
+    BOOST_CHECK_MESSAGE(
+        !mismatch.load(),
+        "concurrent solves on the same operator returned inconsistent results");
 }
 
 BOOST_AUTO_TEST_CASE(testFdmHestonBarrier) {
